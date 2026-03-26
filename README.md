@@ -168,6 +168,19 @@ baton agent     # node agent: runs on each server, executes services
 
 For local development, `baton up` is all you need. For production across multiple servers, run `baton server` somewhere and `baton agent` on each node.
 
+## Chaos engineering
+
+Baton has built-in chaos testing. No extra tools needed.
+
+```
+baton up --chaos                              # kill random services every 30s
+baton up --chaos --chaos-interval 10          # every 10 seconds
+baton up --chaos --chaos-probability 0.5      # 50% chance each interval
+baton up --chaos --chaos-target api           # only target the api service
+```
+
+Services with restart policies will automatically recover. Use chaos mode to verify your app handles failures gracefully before they happen in production.
+
 ## Examples
 
 See the [examples](examples/) directory:
@@ -190,6 +203,8 @@ Baton is in early development. Working today:
 - [x] Static file serving with SPA support
 - [x] Cron scheduling
 - [x] `baton add` scaffolding (12 service types)
+- [x] Chaos engineering (`--chaos` flag)
+- [x] 61 tests (unit, integration, stress)
 - [ ] TLS via Let's Encrypt
 - [ ] Remote node management
 - [ ] Server and agent modes

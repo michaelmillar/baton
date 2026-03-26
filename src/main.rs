@@ -1,4 +1,5 @@
 mod add;
+mod chaos;
 mod config;
 mod cron;
 mod init;
@@ -6,6 +7,7 @@ mod runner;
 mod static_server;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -25,6 +27,14 @@ enum Command {
         config: PathBuf,
         #[arg(long)]
         env: Option<String>,
+        #[arg(long)]
+        chaos: bool,
+        #[arg(long, default_value = "30")]
+        chaos_interval: u64,
+        #[arg(long, default_value = "0.3")]
+        chaos_probability: f64,
+        #[arg(long)]
+        chaos_target: Option<String>,
     },
     Status {
         #[arg(long, default_value = "baton.toml")]
@@ -62,9 +72,25 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Init => init::run().await,
-        Command::Up { config, env: _env } => {
+        Command::Up {
+            config,
+            env: _env,
+            chaos: enable_chaos,
+            chaos_interval,
+            chaos_probability,
+            chaos_target,
+        } => {
             let cfg = config::Config::load(&config)?;
-            runner::run(cfg).await
+            let chaos_cfg = if enable_chaos {
+                Some(chaos::ChaosConfig {
+                    kill_interval: Duration::from_secs(chaos_interval),
+                    kill_probability: chaos_probability,
+                    target: chaos_target,
+                })
+            } else {
+                None
+            };
+            runner::run(cfg, chaos_cfg).await
         }
         Command::Status { config } => {
             let cfg = config::Config::load(&config)?;

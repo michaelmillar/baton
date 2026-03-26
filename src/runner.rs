@@ -9,6 +9,7 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::chaos::{self, ChaosConfig};
 use crate::config::{Config, Service};
 use crate::cron::spawn_cron_task;
 use crate::static_server::spawn_static_server;
@@ -20,7 +21,7 @@ enum ServiceHandle {
     Cron { task: JoinHandle<()> },
 }
 
-pub async fn run(config: Config) -> Result<()> {
+pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
     let order = toposort(&config.services)?;
 
     let needs_containers = config.services.iter().any(|s| s.image.is_some());
@@ -119,6 +120,18 @@ pub async fn run(config: Config) -> Result<()> {
             println!("  [ok] {}  {} ({}) on :{}", service.name, dir, mode, port);
             handles.push((service.name.clone(), ServiceHandle::Static { task }));
         }
+    }
+
+    if let Some(ref cc) = chaos_cfg {
+        let service_names = chaos::validate_chaos_targets(&config, &cc.target)?;
+        let chaos_handle = chaos::spawn_chaos_monkey(
+            config.app.name.clone(),
+            service_names,
+            cc.clone(),
+            container_runtime.clone(),
+            shutdown_rx.clone(),
+        );
+        handles.push(("chaos".to_string(), ServiceHandle::Process { task: chaos_handle }));
     }
 
     println!("\nall services running. ctrl+c to stop.\n");
@@ -322,7 +335,7 @@ async fn detect_container_runtime() -> Result<String> {
     bail!("no container runtime found, install docker or podman")
 }
 
-fn toposort(services: &[Service]) -> Result<Vec<String>> {
+pub fn toposort(services: &[Service]) -> Result<Vec<String>> {
     let mut in_degree: HashMap<&str, usize> = HashMap::new();
     let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
 
@@ -378,7 +391,7 @@ async fn wait_for_port(port: u16) -> Result<()> {
     bail!("port {port} did not become available within 15s")
 }
 
-fn register_env_vars(
+pub fn register_env_vars(
     service: &Service,
     app_name: &str,
     port: u16,
@@ -410,7 +423,7 @@ fn register_env_vars(
     }
 }
 
-fn default_port_for_image(image: &str) -> Option<u16> {
+pub fn default_port_for_image(image: &str) -> Option<u16> {
     if image.contains("postgres") {
         Some(5432)
     } else if image.contains("redis") {
