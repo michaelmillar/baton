@@ -77,6 +77,20 @@ baton up          # starts everything
 
 `baton init` detects Rust, Go, Node.js, Elixir, and Dockerfile projects automatically.
 
+### Adding services
+
+```
+baton add postgres              # adds postgres:16 with volume
+baton add redis                 # adds redis:7
+baton add worker --run "./app process-jobs"
+baton add cron --name reports --run "./app report" --schedule "0 2 * * *"
+baton add static                # adds static file serving from ./dist
+baton add spa                   # same, with SPA routing
+baton add process --name api --run "./api serve" --port 4000
+```
+
+Known service types: `postgres`, `redis`, `mysql`, `mariadb`, `mongo`, `rabbitmq`, `nats`, `worker`, `cron`, `static`, `spa`, `process`.
+
 ## Config reference
 
 ### App
@@ -173,8 +187,9 @@ Baton is in early development. Working today:
 - [x] Dependency ordering (topological sort)
 - [x] Service discovery via env vars
 - [x] Graceful shutdown
-- [ ] Static file serving
-- [ ] Cron scheduling
+- [x] Static file serving with SPA support
+- [x] Cron scheduling
+- [x] `baton add` scaffolding (12 service types)
 - [ ] TLS via Let's Encrypt
 - [ ] Remote node management
 - [ ] Server and agent modes

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -29,23 +30,59 @@ pub struct Environment {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Service {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    #[serde(rename = "static")]
+    #[serde(rename = "static", skip_serializing_if = "Option::is_none")]
     pub static_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub volume: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expose: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub replicas: Option<Replicas>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cluster: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub spa: Option<bool>,
+}
+
+impl Service {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            run: None,
+            build: None,
+            image: None,
+            static_dir: None,
+            port: None,
+            health: None,
+            volume: None,
+            expose: None,
+            schedule: None,
+            replicas: None,
+            after: vec![],
+            runtime: None,
+            cluster: None,
+            team: None,
+            spa: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -88,8 +125,23 @@ impl Config {
                     dep
                 );
             }
+
+            if let Some(schedule) = &service.schedule {
+                let expr = normalise_cron(schedule);
+                cron::Schedule::from_str(&expr)
+                    .map_err(|e| anyhow::anyhow!("service '{}' has invalid schedule '{}': {}", service.name, schedule, e))?;
+            }
         }
 
         Ok(())
+    }
+}
+
+pub fn normalise_cron(expr: &str) -> String {
+    let fields: Vec<&str> = expr.split_whitespace().collect();
+    match fields.len() {
+        5 => format!("0 {expr} *"),
+        6 => format!("0 {expr}"),
+        _ => expr.to_string(),
     }
 }

@@ -20,104 +20,40 @@ pub async fn run() -> Result<()> {
 
     if Path::new("Dockerfile").exists() {
         println!("detected Dockerfile");
-        services.push(Service {
-            name: "web".to_string(),
-            build: Some(".".to_string()),
-            run: None,
-            image: None,
-            static_dir: None,
-            port: Some(8080),
-            health: Some("/health".to_string()),
-            volume: None,
-            expose: None,
-            schedule: None,
-            replicas: None,
-            after: vec![],
-            runtime: None,
-            cluster: None,
-            team: None,
-            spa: None,
-        });
+        let mut svc = Service::new("web");
+        svc.build = Some(".".to_string());
+        svc.port = Some(8080);
+        svc.health = Some("/health".to_string());
+        services.push(svc);
     } else if Path::new("Cargo.toml").exists() {
         println!("detected Rust project");
-        services.push(Service {
-            name: "web".to_string(),
-            run: Some(format!("./target/release/{dir_name}")),
-            build: None,
-            image: None,
-            static_dir: None,
-            port: Some(8080),
-            health: Some("/health".to_string()),
-            volume: None,
-            expose: None,
-            schedule: None,
-            replicas: None,
-            after: vec![],
-            runtime: None,
-            cluster: None,
-            team: None,
-            spa: None,
-        });
+        let mut svc = Service::new("web");
+        svc.run = Some(format!("./target/release/{dir_name}"));
+        svc.port = Some(8080);
+        svc.health = Some("/health".to_string());
+        services.push(svc);
     } else if Path::new("mix.exs").exists() {
         println!("detected Elixir project");
-        services.push(Service {
-            name: "web".to_string(),
-            build: Some(".".to_string()),
-            run: None,
-            image: None,
-            static_dir: None,
-            port: Some(4000),
-            health: Some("/health".to_string()),
-            volume: None,
-            expose: None,
-            schedule: None,
-            replicas: None,
-            after: vec![],
-            runtime: Some("beam".to_string()),
-            cluster: None,
-            team: None,
-            spa: None,
-        });
+        let mut svc = Service::new("web");
+        svc.build = Some(".".to_string());
+        svc.port = Some(4000);
+        svc.health = Some("/health".to_string());
+        svc.runtime = Some("beam".to_string());
+        services.push(svc);
     } else if Path::new("package.json").exists() {
         println!("detected Node.js project");
-        services.push(Service {
-            name: "web".to_string(),
-            build: Some(".".to_string()),
-            run: None,
-            image: None,
-            static_dir: None,
-            port: Some(3000),
-            health: Some("/health".to_string()),
-            volume: None,
-            expose: None,
-            schedule: None,
-            replicas: None,
-            after: vec![],
-            runtime: None,
-            cluster: None,
-            team: None,
-            spa: None,
-        });
+        let mut svc = Service::new("web");
+        svc.build = Some(".".to_string());
+        svc.port = Some(3000);
+        svc.health = Some("/health".to_string());
+        services.push(svc);
     } else if Path::new("go.mod").exists() {
         println!("detected Go project");
-        services.push(Service {
-            name: "web".to_string(),
-            run: Some(format!("./{dir_name}")),
-            build: None,
-            image: None,
-            static_dir: None,
-            port: Some(8080),
-            health: Some("/health".to_string()),
-            volume: None,
-            expose: None,
-            schedule: None,
-            replicas: None,
-            after: vec![],
-            runtime: None,
-            cluster: None,
-            team: None,
-            spa: None,
-        });
+        let mut svc = Service::new("web");
+        svc.run = Some(format!("./{dir_name}"));
+        svc.port = Some(8080);
+        svc.health = Some("/health".to_string());
+        services.push(svc);
     } else {
         println!("no project detected, generating minimal config");
     }
@@ -135,7 +71,7 @@ pub async fn run() -> Result<()> {
         .context("failed to serialise config")?;
 
     std::fs::write(config_path, &toml_str)
-        .context("failed to write orchestra.toml")?;
+        .context("failed to write baton.toml")?;
 
     println!("created baton.toml for '{dir_name}'");
     println!("edit it, then run: baton up");

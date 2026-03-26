@@ -1,6 +1,9 @@
+mod add;
 mod config;
+mod cron;
 mod init;
 mod runner;
+mod static_server;
 
 use std::path::PathBuf;
 
@@ -71,22 +74,19 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Add { service_type, name, port, run, schedule } => {
-            println!("would add {service_type} service");
-            if let Some(n) = &name {
-                println!("  name: {n}");
-            }
-            if let Some(p) = port {
-                println!("  port: {p}");
-            }
-            if let Some(r) = &run {
-                println!("  run: {r}");
-            }
-            if let Some(s) = &schedule {
-                println!("  schedule: {s}");
-            }
-            Ok(())
-        }
+        Command::Add {
+            service_type,
+            name,
+            port,
+            run,
+            schedule,
+        } => add::run(add::AddOptions {
+            service_type,
+            name,
+            port,
+            run,
+            schedule,
+        }),
         Command::Node { action } => {
             match action {
                 NodeAction::Add { addresses } => {

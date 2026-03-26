@@ -10,10 +10,14 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::config::{Config, Service};
+use crate::cron::spawn_cron_task;
+use crate::static_server::spawn_static_server;
 
 enum ServiceHandle {
     Process { task: JoinHandle<()> },
     Container { runtime: String, container_name: String },
+    Static { task: JoinHandle<()> },
+    Cron { task: JoinHandle<()> },
 }
 
 pub async fn run(config: Config) -> Result<()> {
@@ -64,22 +68,56 @@ pub async fn run(config: Config) -> Result<()> {
                 },
             ));
         } else if let Some(cmd) = &service.run {
-            let task = spawn_process(
+            if let Some(schedule) = &service.schedule {
+                let task = spawn_cron_task(
+                    service.name.clone(),
+                    cmd.clone(),
+                    schedule.clone(),
+                    env_vars.clone(),
+                    shutdown_rx.clone(),
+                );
+
+                println!("  [ok] {}  {} scheduled ({})", service.name, cmd, schedule);
+                handles.push((service.name.clone(), ServiceHandle::Cron { task }));
+            } else {
+                let task = spawn_process(
+                    service.name.clone(),
+                    cmd.clone(),
+                    env_vars.clone(),
+                    shutdown_rx.clone(),
+                );
+
+                if let Some(port) = service.port {
+                    wait_for_port(port).await?;
+                    register_env_vars(service, &config.app.name, port, &mut env_vars);
+                    println!("  [ok] {}  {} on :{}", service.name, cmd, port);
+                } else {
+                    println!("  [ok] {}  {} running", service.name, cmd);
+                }
+
+                handles.push((service.name.clone(), ServiceHandle::Process { task }));
+            }
+        } else if let Some(dir) = &service.static_dir {
+            let port = service.port.unwrap_or(3000);
+            let spa = service.spa.unwrap_or(false);
+            let dir_path = std::path::PathBuf::from(dir);
+
+            if !dir_path.exists() {
+                bail!("static directory '{}' does not exist", dir);
+            }
+
+            let task = spawn_static_server(
                 service.name.clone(),
-                cmd.clone(),
-                env_vars.clone(),
+                dir_path,
+                port,
+                spa,
                 shutdown_rx.clone(),
             );
 
-            if let Some(port) = service.port {
-                wait_for_port(port).await?;
-                register_env_vars(service, &config.app.name, port, &mut env_vars);
-                println!("  [ok] {}  {} on :{}", service.name, cmd, port);
-            } else {
-                println!("  [ok] {}  {} running", service.name, cmd);
-            }
-
-            handles.push((service.name.clone(), ServiceHandle::Process { task }));
+            wait_for_port(port).await?;
+            let mode = if spa { "spa" } else { "static" };
+            println!("  [ok] {}  {} ({}) on :{}", service.name, dir, mode, port);
+            handles.push((service.name.clone(), ServiceHandle::Static { task }));
         }
     }
 
@@ -97,18 +135,21 @@ pub async fn run(config: Config) -> Result<()> {
                 container_name,
             } => {
                 stop_container(runtime, container_name).await;
-                println!("  stopped {name}");
             }
-            ServiceHandle::Process { .. } => {
-                println!("  stopped {name}");
-            }
+            _ => {}
         }
+        println!("  stopped {name}");
     }
 
     for (_, handle) in handles {
-        if let ServiceHandle::Process { task } = handle {
-            task.abort();
-            let _ = task.await;
+        match handle {
+            ServiceHandle::Process { task }
+            | ServiceHandle::Static { task }
+            | ServiceHandle::Cron { task } => {
+                task.abort();
+                let _ = task.await;
+            }
+            ServiceHandle::Container { .. } => {}
         }
     }
 
