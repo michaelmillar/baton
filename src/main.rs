@@ -1,4 +1,5 @@
 mod add;
+mod agent;
 mod build;
 mod chaos;
 mod config;
@@ -8,6 +9,7 @@ mod health;
 mod init;
 mod proxy;
 mod runner;
+mod server;
 mod static_server;
 
 use std::path::PathBuf;
@@ -63,8 +65,18 @@ enum Command {
         #[command(subcommand)]
         action: NodeAction,
     },
-    Server,
-    Agent,
+    Server {
+        #[arg(long, default_value = "baton.toml")]
+        config: PathBuf,
+        #[arg(long, default_value = "9090")]
+        port: u16,
+    },
+    Agent {
+        #[arg(long)]
+        server: String,
+        #[arg(long, default_value = "9091")]
+        port: u16,
+    },
 }
 
 #[derive(Subcommand)]
@@ -160,13 +172,12 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::Server => {
-            println!("baton server starting...");
-            Ok(())
+        Command::Server { config, port } => {
+            let cfg = config::Config::load(&config)?;
+            server::run(cfg, port).await
         }
-        Command::Agent => {
-            println!("baton agent starting...");
-            Ok(())
+        Command::Agent { server: server_addr, port } => {
+            agent::run(server_addr, port).await
         }
     }
 }

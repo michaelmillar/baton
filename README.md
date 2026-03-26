@@ -178,12 +178,21 @@ Baton injects environment variables so services can find each other:
 Baton is a single binary with three modes:
 
 ```
-baton up        # local dev: runs everything on this machine
-baton server    # control plane: accepts configs, schedules services
-baton agent     # node agent: runs on each server, executes services
+baton up                           # local dev, runs everything on this machine
+baton server --port 9090           # control plane, accepts configs, schedules services
+baton agent --server host:9090     # node agent, runs on each server
 ```
 
 For local development, `baton up` is all you need. For production across multiple servers, run `baton server` somewhere and `baton agent` on each node.
+
+The server exposes a JSON API for cluster management:
+
+```
+GET  /api/status              # cluster state, agents, assignments
+POST /api/agents/register     # agent self-registration
+POST /api/agents/heartbeat    # agent health reporting
+POST /api/deploy              # trigger service scheduling
+```
 
 ## Chaos engineering
 
@@ -226,10 +235,11 @@ Baton is in early development. Working today:
 - [x] Docker build support (`build = "."`)
 - [x] Reverse proxy with domain routing
 - [x] Config validation (`baton validate`)
+- [x] Server mode with JSON API
+- [x] Agent mode with registration and heartbeat
+- [x] Service scheduling (round-robin across agents)
 - [x] 69 tests (unit, integration, stress)
 - [ ] TLS via Let's Encrypt
-- [ ] Remote node management
-- [ ] Server and agent modes
 - [ ] Rolling deployments
 
 ## Licence
