@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -43,11 +44,27 @@ pub enum ServiceStatus {
     Stopped,
 }
 
+const DASHBOARD_HTML: &str = include_str!("dashboard.html");
+
 #[derive(Debug, Serialize)]
 struct ClusterStatus {
     app: String,
+    domain: Option<String>,
+    services: Vec<ClusterServiceInfo>,
     agents: Vec<AgentInfo>,
     assignments: Vec<ServiceAssignment>,
+}
+
+#[derive(Debug, Serialize)]
+struct ClusterServiceInfo {
+    name: String,
+    run: Option<String>,
+    image: Option<String>,
+    build: Option<String>,
+    #[serde(rename = "static")]
+    static_dir: Option<String>,
+    port: Option<u16>,
+    schedule: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,6 +100,7 @@ pub async fn run(config: Config, port: u16) -> Result<()> {
     });
 
     let app = Router::new()
+        .route("/", get(dashboard_page))
         .route("/api/status", get(status_handler))
         .route("/api/agents/register", post(register_handler))
         .route("/api/agents/heartbeat", post(heartbeat_handler))
@@ -91,7 +109,7 @@ pub async fn run(config: Config, port: u16) -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("baton server listening on :{port}");
-    println!("  app: {}", "pending");
+    println!("  dashboard: http://localhost:{port}");
     println!("  waiting for agents to register...\n");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -104,14 +122,30 @@ pub async fn run(config: Config, port: u16) -> Result<()> {
     Ok(())
 }
 
+async fn dashboard_page() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], DASHBOARD_HTML)
+}
+
 async fn status_handler(
     State(state): State<Arc<ServerState>>,
 ) -> Json<ClusterStatus> {
     let agents = state.agents.read().await;
     let assignments = state.assignments.read().await;
 
+    let services = state.config.services.iter().map(|s| ClusterServiceInfo {
+        name: s.name.clone(),
+        run: s.run.clone(),
+        image: s.image.clone(),
+        build: s.build.clone(),
+        static_dir: s.static_dir.clone(),
+        port: s.port,
+        schedule: s.schedule.clone(),
+    }).collect();
+
     Json(ClusterStatus {
         app: state.config.app.name.clone(),
+        domain: state.config.app.domain.clone(),
+        services,
         agents: agents.values().cloned().collect(),
         assignments: assignments.clone(),
     })

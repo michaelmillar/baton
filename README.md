@@ -12,7 +12,7 @@
 ---
 
 <p align="center">
-  <img src="assets/screenshot.svg" width="680" alt="Baton in action">
+  <img src="assets/screenshot.svg" width="780" alt="Baton dashboard">
 </p>
 
 ## What it does
@@ -173,6 +173,16 @@ Baton injects environment variables so services can find each other:
 | MySQL/MariaDB | `DATABASE_URL` |
 | MongoDB | `MONGO_URL` |
 
+## Dashboard
+
+```
+baton up --ui                     # starts services + web dashboard on :9500
+baton up --ui --ui-port 8080      # custom port
+baton server --port 9090          # server mode includes dashboard at /
+```
+
+The dashboard shows live service status, types, ports, and cluster overview. It updates every 2 seconds with no dependencies or build step.
+
 ## Architecture
 
 Baton is a single binary with three modes:
@@ -238,6 +248,7 @@ Baton is in early development. Working today:
 - [x] Server mode with JSON API
 - [x] Agent mode with registration and heartbeat
 - [x] Service scheduling (round-robin across agents)
+- [x] Web dashboard (`--ui` flag, also built into server mode)
 - [x] 69 tests (unit, integration, stress)
 - [ ] TLS via Let's Encrypt
 - [ ] Rolling deployments

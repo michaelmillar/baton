@@ -4,6 +4,7 @@ mod build;
 mod chaos;
 mod config;
 mod cron;
+mod dashboard;
 mod env_file;
 mod health;
 mod init;
@@ -33,6 +34,10 @@ enum Command {
         config: PathBuf,
         #[arg(long)]
         env: Option<String>,
+        #[arg(long)]
+        ui: bool,
+        #[arg(long, default_value = "9500")]
+        ui_port: u16,
         #[arg(long)]
         chaos: bool,
         #[arg(long, default_value = "30")]
@@ -95,6 +100,8 @@ async fn main() -> Result<()> {
         Command::Up {
             config,
             env: _env,
+            ui: enable_ui,
+            ui_port,
             chaos: enable_chaos,
             chaos_interval,
             chaos_probability,
@@ -110,7 +117,12 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
-            runner::run(cfg, chaos_cfg).await
+            let ui_cfg = if enable_ui {
+                Some(ui_port)
+            } else {
+                None
+            };
+            runner::run(cfg, chaos_cfg, ui_cfg).await
         }
         Command::Validate { config } => {
             let cfg = config::Config::load(&config)?;

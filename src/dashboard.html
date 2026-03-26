@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baton</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root {
+  --bg: #fff;
+  --surface: #fafafa;
+  --text: #111;
+  --muted: #555;
+  --border: #d6d6d6;
+  --success: #2d7a3a;
+  --warning: #a67c00;
+  --danger: #b33;
+  --accent: #000;
+}
+
+body {
+  font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  color: var(--text);
+  background: var(--bg);
+  padding: 2rem 3vw;
+  line-height: 1.5;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2rem;
+}
+
+.header h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.header .domain {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-family: 'Iosevka Term', 'IBM Plex Mono', 'Cascadia Code', monospace;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 2.5rem;
+}
+
+@media (max-width: 800px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+.eyebrow {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+
+.services {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.service {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.service:first-child {
+  padding-top: 0;
+}
+
+.service-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.service-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-family: 'Iosevka Term', 'IBM Plex Mono', 'Cascadia Code', monospace;
+  margin-top: 0.2rem;
+}
+
+.service-type {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.5rem;
+  font-family: 'Iosevka Term', 'IBM Plex Mono', 'Cascadia Code', monospace;
+}
+
+.service-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-running { background: var(--success); }
+.dot-pending { background: var(--warning); }
+.dot-failed { background: var(--danger); }
+.dot-stopped { background: var(--muted); }
+.dot-scheduled { background: var(--muted); }
+
+.status-running { color: var(--success); }
+.status-pending { color: var(--warning); }
+.status-failed { color: var(--danger); }
+.status-stopped { color: var(--muted); }
+.status-scheduled { color: var(--muted); }
+
+.sidebar section {
+  margin-bottom: 2rem;
+}
+
+.sidebar section:last-child {
+  margin-bottom: 0;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.stat {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.stat:nth-child(odd) {
+  padding-right: 1rem;
+}
+
+.stat:nth-child(even) {
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+}
+
+.stat-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-family: 'Iosevka Term', 'IBM Plex Mono', 'Cascadia Code', monospace;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.agent {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent:first-of-type {
+  padding-top: 0;
+}
+
+.agent-addr {
+  font-family: 'Iosevka Term', 'IBM Plex Mono', 'Cascadia Code', monospace;
+  font-size: 0.85rem;
+}
+
+.agent-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.updated {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: right;
+  margin-top: 2rem;
+  font-family: 'Iosevka Term', 'IBM Plex Mono', 'Cascadia Code', monospace;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Baton</h1>
+  <span class="domain" id="domain"></span>
+</div>
+
+<div class="grid">
+  <div class="main">
+    <div class="eyebrow">Services</div>
+    <div class="services" id="services">
+      <div class="empty">connecting...</div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <section>
+      <div class="eyebrow">Overview</div>
+      <div class="stat-grid" id="stats">
+        <div class="stat">
+          <div class="stat-value" id="total">0</div>
+          <div class="stat-label">services</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value status-running" id="running">0</div>
+          <div class="stat-label">running</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="agents-count">0</div>
+          <div class="stat-label">agents</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="uptime">0s</div>
+          <div class="stat-label">uptime</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="agents-section" style="display:none">
+      <div class="eyebrow">Agents</div>
+      <div id="agents"></div>
+    </section>
+  </div>
+</div>
+
+<div class="updated" id="updated"></div>
+
+<script>
+const startTime = Date.now();
+
+function serviceType(svc) {
+  if (svc.image) return 'container';
+  if (svc.build) return 'build';
+  if (svc.static) return 'static';
+  if (svc.schedule) return 'cron';
+  return 'process';
+}
+
+function serviceCmd(svc) {
+  return svc.image || svc.run || svc.build || svc.static || '';
+}
+
+function statusClass(status) {
+  const s = (status || 'running').toLowerCase();
+  if (s === 'running') return 'running';
+  if (s === 'pending' || s === 'starting') return 'pending';
+  if (s === 'failed') return 'failed';
+  if (s === 'stopped') return 'stopped';
+  return 'running';
+}
+
+function formatUptime(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
+function render(data) {
+  document.getElementById('domain').textContent = data.domain || '';
+
+  const svcs = data.services || [];
+  const assignments = data.assignments || [];
+  const container = document.getElementById('services');
+
+  if (svcs.length === 0 && assignments.length === 0) {
+    container.innerHTML = '<div class="empty">no services configured</div>';
+  } else {
+    const items = svcs.length > 0 ? svcs : assignments.map(a => ({
+      name: a.service_name,
+      _status: a.status
+    }));
+
+    container.innerHTML = items.map(svc => {
+      const type = serviceType(svc);
+      const cmd = serviceCmd(svc);
+      const status = svc._status ? svc._status.toLowerCase() : (svc.schedule ? 'scheduled' : 'running');
+      const sc = statusClass(status);
+      const port = svc.port ? ':' + svc.port : '';
+
+      return '<div class="service">' +
+        '<div><div class="service-name">' + svc.name + '</div>' +
+        (cmd ? '<div class="service-meta">' + cmd + (port ? ' ' + port : '') + '</div>' : '') +
+        '</div>' +
+        '<span class="service-type">' + type + '</span>' +
+        '<div class="service-status status-' + sc + '"><span class="dot dot-' + sc + '"></span>' + status + '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  const total = svcs.length || assignments.length;
+  const runningCount = svcs.length > 0
+    ? svcs.filter(s => !s.schedule).length
+    : assignments.filter(a => a.status === 'Running').length;
+
+  document.getElementById('total').textContent = total;
+  document.getElementById('running').textContent = runningCount;
+  document.getElementById('uptime').textContent = formatUptime(Date.now() - startTime);
+
+  const agents = data.agents || [];
+  document.getElementById('agents-count').textContent = agents.length || (svcs.length > 0 ? 'local' : '0');
+
+  if (agents.length > 0) {
+    document.getElementById('agents-section').style.display = '';
+    document.getElementById('agents').innerHTML = agents.map(a =>
+      '<div class="agent">' +
+      '<div class="agent-addr">' + a.address + '</div>' +
+      '<div class="agent-meta">' + a.hostname + ' | ' + a.capacity.cpus + ' cpu | ' + Math.round(a.capacity.memory_mb / 1024) + ' gb</div>' +
+      '</div>'
+    ).join('');
+  }
+
+  document.getElementById('updated').textContent = 'updated ' + new Date().toLocaleTimeString();
+}
+
+async function poll() {
+  try {
+    const resp = await fetch('/api/status');
+    if (resp.ok) {
+      const data = await resp.json();
+      render(data);
+    }
+  } catch (e) {
+    render({ services: window._lastServices || [], domain: '' });
+  }
+}
+
+poll();
+setInterval(poll, 2000);
+setInterval(() => {
+  document.getElementById('uptime').textContent = formatUptime(Date.now() - startTime);
+}, 1000);
+</script>
+
+</body>
+</html>

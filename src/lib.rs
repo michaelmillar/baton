@@ -4,6 +4,7 @@ pub mod build;
 pub mod chaos;
 pub mod config;
 pub mod cron;
+pub mod dashboard;
 pub mod env_file;
 pub mod health;
 pub mod init;

@@ -14,6 +14,7 @@ use crate::build;
 use crate::chaos::{self, ChaosConfig};
 use crate::config::{Config, Service};
 use crate::cron::spawn_cron_task;
+use crate::dashboard;
 use crate::env_file;
 use crate::health;
 use crate::proxy::{self, ProxyRoute};
@@ -27,7 +28,7 @@ enum ServiceHandle {
     Proxy { task: JoinHandle<()> },
 }
 
-pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
+pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option<u16>) -> Result<()> {
     let order = toposort(&config.services)?;
 
     let needs_containers = config.services.iter().any(|s| s.image.is_some() || s.build.is_some());
@@ -173,6 +174,11 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
             println!("  [ok] {}  {} ({}) on :{}", service.name, dir, mode, port);
             handles.push((service.name.clone(), ServiceHandle::Static { task }));
         }
+    }
+
+    if let Some(port) = ui_port {
+        let task = dashboard::spawn_dashboard(config.clone(), port, shutdown_rx.clone());
+        handles.push(("ui".to_string(), ServiceHandle::Proxy { task }));
     }
 
     if !proxy_routes.is_empty() {
