@@ -1,7 +1,11 @@
 pub mod add;
+pub mod build;
 pub mod chaos;
 pub mod config;
 pub mod cron;
+pub mod env_file;
+pub mod health;
 pub mod init;
+pub mod proxy;
 pub mod runner;
 pub mod static_server;

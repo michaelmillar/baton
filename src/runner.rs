@@ -1,17 +1,22 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
 use anyhow::{bail, Result};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
+use crate::build;
 use crate::chaos::{self, ChaosConfig};
 use crate::config::{Config, Service};
 use crate::cron::spawn_cron_task;
+use crate::env_file;
+use crate::health;
+use crate::proxy::{self, ProxyRoute};
 use crate::static_server::spawn_static_server;
 
 enum ServiceHandle {
@@ -19,12 +24,13 @@ enum ServiceHandle {
     Container { runtime: String, container_name: String },
     Static { task: JoinHandle<()> },
     Cron { task: JoinHandle<()> },
+    Proxy { task: JoinHandle<()> },
 }
 
 pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
     let order = toposort(&config.services)?;
 
-    let needs_containers = config.services.iter().any(|s| s.image.is_some());
+    let needs_containers = config.services.iter().any(|s| s.image.is_some() || s.build.is_some());
     let container_runtime = if needs_containers {
         Some(detect_container_runtime().await?)
     } else {
@@ -34,6 +40,13 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let mut handles: Vec<(String, ServiceHandle)> = Vec::new();
     let mut env_vars: HashMap<String, String> = HashMap::new();
+    let mut proxy_routes: Vec<ProxyRoute> = Vec::new();
+
+    let dotenv = env_file::load(Path::new(".env"))?;
+    if !dotenv.is_empty() {
+        println!("loaded {} vars from .env", dotenv.len());
+        env_vars.extend(dotenv);
+    }
 
     println!("starting {}...\n", config.app.name);
 
@@ -44,7 +57,41 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
             .find(|s| s.name == *service_name)
             .unwrap();
 
-        if let Some(image) = &service.image {
+        if let Some(build_ctx) = &service.build {
+            let rt = container_runtime.as_ref().unwrap();
+            let image_tag = format!("baton-{}-{}", config.app.name, service.name);
+            build::build_image(rt, &image_tag, build_ctx).await?;
+
+            let container_name = format!("baton-{}-{}", config.app.name, service.name);
+            let port = service.port.or(service.expose);
+
+            let build_svc = Service {
+                image: Some(image_tag.clone()),
+                ..Service::new(&service.name)
+            };
+
+            start_container(rt, &container_name, &image_tag, &build_svc, &config.app.name, port).await?;
+
+            if let Some(p) = port {
+                if let Some(health_path) = &service.health {
+                    health::wait_for_healthy(p, health_path).await?;
+                } else {
+                    health::wait_for_port(p).await?;
+                }
+                register_env_vars(service, &config.app.name, p, &mut env_vars);
+                collect_proxy_route(&config, service, p, &mut proxy_routes);
+            }
+
+            println!("  [ok] {}  built and running on :{}", service.name, port.unwrap_or(0));
+
+            handles.push((
+                service.name.clone(),
+                ServiceHandle::Container {
+                    runtime: rt.clone(),
+                    container_name,
+                },
+            ));
+        } else if let Some(image) = &service.image {
             let rt = container_runtime.as_ref().unwrap();
             let container_name = format!("baton-{}-{}", config.app.name, service.name);
             let port = service
@@ -55,7 +102,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
             start_container(rt, &container_name, image, service, &config.app.name, port).await?;
 
             if let Some(p) = port {
-                wait_for_port(p).await?;
+                health::wait_for_port(p).await?;
                 register_env_vars(service, &config.app.name, p, &mut env_vars);
             }
 
@@ -89,8 +136,13 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
                 );
 
                 if let Some(port) = service.port {
-                    wait_for_port(port).await?;
+                    if let Some(health_path) = &service.health {
+                        health::wait_for_healthy(port, health_path).await?;
+                    } else {
+                        health::wait_for_port(port).await?;
+                    }
                     register_env_vars(service, &config.app.name, port, &mut env_vars);
+                    collect_proxy_route(&config, service, port, &mut proxy_routes);
                     println!("  [ok] {}  {} on :{}", service.name, cmd, port);
                 } else {
                     println!("  [ok] {}  {} running", service.name, cmd);
@@ -115,11 +167,18 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
                 shutdown_rx.clone(),
             );
 
-            wait_for_port(port).await?;
+            health::wait_for_port(port).await?;
+            collect_proxy_route(&config, service, port, &mut proxy_routes);
             let mode = if spa { "spa" } else { "static" };
             println!("  [ok] {}  {} ({}) on :{}", service.name, dir, mode, port);
             handles.push((service.name.clone(), ServiceHandle::Static { task }));
         }
+    }
+
+    if !proxy_routes.is_empty() {
+        let proxy_port = 80;
+        let task = proxy::spawn_proxy(proxy_routes, proxy_port, shutdown_rx.clone());
+        handles.push(("proxy".to_string(), ServiceHandle::Proxy { task }));
     }
 
     if let Some(ref cc) = chaos_cfg {
@@ -158,7 +217,8 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
         match handle {
             ServiceHandle::Process { task }
             | ServiceHandle::Static { task }
-            | ServiceHandle::Cron { task } => {
+            | ServiceHandle::Cron { task }
+            | ServiceHandle::Proxy { task } => {
                 task.abort();
                 let _ = task.await;
             }
@@ -168,6 +228,24 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>) -> Result<()> {
 
     println!("done.");
     Ok(())
+}
+
+fn collect_proxy_route(
+    config: &Config,
+    service: &Service,
+    port: u16,
+    routes: &mut Vec<ProxyRoute>,
+) {
+    let app_domain = match &config.app.domain {
+        Some(d) => d,
+        None => return,
+    };
+
+    let domain = format!("{}.{}", service.name, app_domain);
+    routes.push(ProxyRoute {
+        domain,
+        backend: SocketAddr::from(([127, 0, 0, 1], port)),
+    });
 }
 
 fn spawn_process(
@@ -378,17 +456,6 @@ pub fn toposort(services: &[Service]) -> Result<Vec<String>> {
     }
 
     Ok(order)
-}
-
-async fn wait_for_port(port: u16) -> Result<()> {
-    let addr = format!("127.0.0.1:{port}");
-    for _ in 0..30 {
-        if TcpStream::connect(&addr).await.is_ok() {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-    bail!("port {port} did not become available within 15s")
 }
 
 pub fn register_env_vars(

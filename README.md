@@ -91,6 +91,23 @@ baton add process --name api --run "./api serve" --port 4000
 
 Known service types: `postgres`, `redis`, `mysql`, `mariadb`, `mongo`, `rabbitmq`, `nats`, `worker`, `cron`, `static`, `spa`, `process`.
 
+### Validating config
+
+```
+baton validate                   # checks baton.toml for errors
+```
+
+### Environment variables
+
+Baton loads `.env` files automatically. Variables are injected into all services.
+
+```
+# .env
+SECRET_KEY=my-secret
+API_TOKEN="bearer abc123"
+DATABASE_URL=postgres://custom@host/db
+```
+
 ## Config reference
 
 ### App
@@ -204,7 +221,12 @@ Baton is in early development. Working today:
 - [x] Cron scheduling
 - [x] `baton add` scaffolding (12 service types)
 - [x] Chaos engineering (`--chaos` flag)
-- [x] 61 tests (unit, integration, stress)
+- [x] HTTP health checks (actual endpoint verification)
+- [x] `.env` file support
+- [x] Docker build support (`build = "."`)
+- [x] Reverse proxy with domain routing
+- [x] Config validation (`baton validate`)
+- [x] 69 tests (unit, integration, stress)
 - [ ] TLS via Let's Encrypt
 - [ ] Remote node management
 - [ ] Server and agent modes

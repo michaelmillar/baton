@@ -1,8 +1,12 @@
 mod add;
+mod build;
 mod chaos;
 mod config;
 mod cron;
+mod env_file;
+mod health;
 mod init;
+mod proxy;
 mod runner;
 mod static_server;
 
@@ -35,6 +39,10 @@ enum Command {
         chaos_probability: f64,
         #[arg(long)]
         chaos_target: Option<String>,
+    },
+    Validate {
+        #[arg(long, default_value = "baton.toml")]
+        config: PathBuf,
     },
     Status {
         #[arg(long, default_value = "baton.toml")]
@@ -91,6 +99,33 @@ async fn main() -> Result<()> {
                 None
             };
             runner::run(cfg, chaos_cfg).await
+        }
+        Command::Validate { config } => {
+            let cfg = config::Config::load(&config)?;
+            println!("{} is valid", config.display());
+            println!("  app: {}", cfg.app.name);
+            if let Some(domain) = &cfg.app.domain {
+                println!("  domain: {domain}");
+            }
+            println!("  services: {}", cfg.services.len());
+            for svc in &cfg.services {
+                let kind = if svc.image.is_some() {
+                    "container"
+                } else if svc.build.is_some() {
+                    "build"
+                } else if svc.static_dir.is_some() {
+                    "static"
+                } else if svc.schedule.is_some() {
+                    "cron"
+                } else {
+                    "process"
+                };
+                println!("    {} ({})", svc.name, kind);
+            }
+            if !cfg.environments.is_empty() {
+                println!("  environments: {}", cfg.environments.keys().cloned().collect::<Vec<_>>().join(", "));
+            }
+            Ok(())
         }
         Command::Status { config } => {
             let cfg = config::Config::load(&config)?;
