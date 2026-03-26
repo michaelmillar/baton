@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 520" width="720" height="520">
+  <defs>
+    <style>
+      .term-text { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; font-size: 14px; fill: #c9d1d9; }
+      .term-green { fill: #3fb950; }
+      .term-dim { fill: #8b949e; }
+      .term-cyan { fill: #58a6ff; }
+      .term-prompt { fill: #bc8cff; }
+      .term-title { font-family: system-ui, -apple-system, sans-serif; font-size: 13px; fill: #8b949e; }
+    </style>
+  </defs>
+  <rect width="720" height="520" rx="12" fill="#0d1117"/>
+  <rect width="720" height="40" rx="12" fill="#161b22"/>
+  <rect y="28" width="720" height="12" fill="#161b22"/>
+  <circle cx="24" cy="20" r="7" fill="#f85149"/>
+  <circle cx="48" cy="20" r="7" fill="#d29922"/>
+  <circle cx="72" cy="20" r="7" fill="#3fb950"/>
+  <text x="360" y="25" text-anchor="middle" class="term-title">baton up</text>
+
+  <text x="24" y="75" class="term-text"><tspan class="term-prompt">$</tspan> cat baton.toml</text>
+
+  <text x="24" y="100" class="term-dim">[app]</text>
+  <text x="24" y="120" class="term-text">name = <tspan class="term-green">"myapp"</tspan></text>
+  <text x="24" y="140" class="term-text">domain = <tspan class="term-green">"myapp.com"</tspan></text>
+
+  <text x="24" y="168" class="term-dim">[[service]]</text>
+  <text x="24" y="188" class="term-text">name = <tspan class="term-green">"db"</tspan></text>
+  <text x="24" y="208" class="term-text">image = <tspan class="term-green">"postgres:16"</tspan></text>
+
+  <text x="24" y="236" class="term-dim">[[service]]</text>
+  <text x="24" y="256" class="term-text">name = <tspan class="term-green">"api"</tspan></text>
+  <text x="24" y="276" class="term-text">run = <tspan class="term-green">"./api serve"</tspan></text>
+  <text x="24" y="296" class="term-text">port = <tspan class="term-cyan">4000</tspan></text>
+  <text x="24" y="316" class="term-text">after = [<tspan class="term-green">"db"</tspan>]</text>
+
+  <text x="24" y="352" class="term-text"><tspan class="term-prompt">$</tspan> baton up</text>
+  <text x="24" y="377" class="term-text">starting myapp...</text>
+
+  <text x="24" y="405" class="term-text">  <tspan class="term-green">[ok]</tspan> db        postgres:16 on :5432</text>
+  <text x="24" y="425" class="term-text">  <tspan class="term-green">[ok]</tspan> api       ./api serve on :4000</text>
+
+  <text x="24" y="458" class="term-text">all services running. ctrl+c to stop.</text>
+
+  <text x="24" y="490" class="term-dim">[api] listening on :4000</text>
+</svg>

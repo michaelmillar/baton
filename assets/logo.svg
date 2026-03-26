@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="baton-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f5f0e8"/>
+      <stop offset="100%" style="stop-color:#d4c5a9"/>
+    </linearGradient>
+    <linearGradient id="handle-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d2d2d"/>
+      <stop offset="100%" style="stop-color:#1a1a1a"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="400" rx="40" fill="#0d1117"/>
+  <line x1="280" y1="80" x2="140" y2="280" stroke="url(#baton-grad)" stroke-width="6" stroke-linecap="round"/>
+  <ellipse cx="135" cy="290" rx="14" ry="8" transform="rotate(-55 135 290)" fill="url(#handle-grad)" stroke="#f5f0e8" stroke-width="2"/>
+  <circle cx="285" cy="72" r="5" fill="#f5f0e8" opacity="0.9"/>
+  <text x="200" y="360" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="600" font-size="36" fill="#f5f0e8" letter-spacing="6">BATON</text>
+</svg>
