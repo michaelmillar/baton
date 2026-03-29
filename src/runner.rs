@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -11,10 +11,9 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::build;
-use crate::chaos::{self, ChaosConfig};
 use crate::config::{Config, Service};
 use crate::cron::spawn_cron_task;
-use crate::dashboard;
+use crate::dashboard::{self, ServiceState, SharedState};
 use crate::env_file;
 use crate::health;
 use crate::proxy::{self, ProxyRoute};
@@ -28,7 +27,7 @@ enum ServiceHandle {
     Proxy { task: JoinHandle<()> },
 }
 
-pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option<u16>) -> Result<()> {
+pub async fn run(config: Config, ui_port: Option<u16>) -> Result<()> {
     let order = toposort(&config.services)?;
 
     let needs_containers = config.services.iter().any(|s| s.image.is_some() || s.build.is_some());
@@ -42,6 +41,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
     let mut handles: Vec<(String, ServiceHandle)> = Vec::new();
     let mut env_vars: HashMap<String, String> = HashMap::new();
     let mut proxy_routes: Vec<ProxyRoute> = Vec::new();
+    let shared_state = dashboard::new_shared_state();
 
     let dotenv = env_file::load(Path::new(".env"))?;
     if !dotenv.is_empty() {
@@ -71,7 +71,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
                 ..Service::new(&service.name)
             };
 
-            start_container(rt, &container_name, &image_tag, &build_svc, &config.app.name, port).await?;
+            start_container(rt, &container_name, &image_tag, &build_svc, &config.app.name, port, &env_vars).await?;
 
             if let Some(p) = port {
                 if let Some(health_path) = &service.health {
@@ -83,6 +83,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
                 collect_proxy_route(&config, service, p, &mut proxy_routes);
             }
 
+            set_state(&shared_state, &service.name, "container", &image_tag, port, None, "running").await;
             println!("  [ok] {}  built and running on :{}", service.name, port.unwrap_or(0));
 
             handles.push((
@@ -100,13 +101,14 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
                 .or(service.expose)
                 .or_else(|| default_port_for_image(image));
 
-            start_container(rt, &container_name, image, service, &config.app.name, port).await?;
+            start_container(rt, &container_name, image, service, &config.app.name, port, &env_vars).await?;
 
             if let Some(p) = port {
                 health::wait_for_port(p).await?;
                 register_env_vars(service, &config.app.name, p, &mut env_vars);
             }
 
+            set_state(&shared_state, &service.name, "container", image, port, None, "running").await;
             println!("  [ok] {}  {} on :{}", service.name, image, port.unwrap_or(0));
 
             handles.push((
@@ -126,6 +128,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
                     shutdown_rx.clone(),
                 );
 
+                set_state(&shared_state, &service.name, "cron", cmd, None, Some(schedule.clone()), "scheduled").await;
                 println!("  [ok] {}  {} scheduled ({})", service.name, cmd, schedule);
                 handles.push((service.name.clone(), ServiceHandle::Cron { task }));
             } else {
@@ -134,6 +137,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
                     cmd.clone(),
                     env_vars.clone(),
                     shutdown_rx.clone(),
+                    shared_state.clone(),
                 );
 
                 if let Some(port) = service.port {
@@ -149,6 +153,7 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
                     println!("  [ok] {}  {} running", service.name, cmd);
                 }
 
+                set_state(&shared_state, &service.name, "process", cmd, service.port, None, "running").await;
                 handles.push((service.name.clone(), ServiceHandle::Process { task }));
             }
         } else if let Some(dir) = &service.static_dir {
@@ -171,32 +176,26 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
             health::wait_for_port(port).await?;
             collect_proxy_route(&config, service, port, &mut proxy_routes);
             let mode = if spa { "spa" } else { "static" };
+            set_state(&shared_state, &service.name, mode, dir, Some(port), None, "running").await;
             println!("  [ok] {}  {} ({}) on :{}", service.name, dir, mode, port);
             handles.push((service.name.clone(), ServiceHandle::Static { task }));
         }
     }
 
     if let Some(port) = ui_port {
-        let task = dashboard::spawn_dashboard(config.clone(), port, shutdown_rx.clone());
+        let task = dashboard::spawn_dashboard(
+            config.app.domain.clone(),
+            shared_state.clone(),
+            port,
+            shutdown_rx.clone(),
+        );
         handles.push(("ui".to_string(), ServiceHandle::Proxy { task }));
     }
 
     if !proxy_routes.is_empty() {
-        let proxy_port = 80;
+        let proxy_port = config.app.proxy_port.unwrap_or(8443);
         let task = proxy::spawn_proxy(proxy_routes, proxy_port, shutdown_rx.clone());
         handles.push(("proxy".to_string(), ServiceHandle::Proxy { task }));
-    }
-
-    if let Some(ref cc) = chaos_cfg {
-        let service_names = chaos::validate_chaos_targets(&config, &cc.target)?;
-        let chaos_handle = chaos::spawn_chaos_monkey(
-            config.app.name.clone(),
-            service_names,
-            cc.clone(),
-            container_runtime.clone(),
-            shutdown_rx.clone(),
-        );
-        handles.push(("chaos".to_string(), ServiceHandle::Process { task: chaos_handle }));
     }
 
     println!("\nall services running. ctrl+c to stop.\n");
@@ -207,14 +206,8 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
     let _ = shutdown_tx.send(true);
 
     for (name, handle) in handles.iter().rev() {
-        match handle {
-            ServiceHandle::Container {
-                runtime,
-                container_name,
-            } => {
-                stop_container(runtime, container_name).await;
-            }
-            _ => {}
+        if let ServiceHandle::Container { runtime, container_name } = handle {
+            stop_container(runtime, container_name).await;
         }
         println!("  stopped {name}");
     }
@@ -236,6 +229,28 @@ pub async fn run(config: Config, chaos_cfg: Option<ChaosConfig>, ui_port: Option
     Ok(())
 }
 
+async fn set_state(
+    shared: &SharedState,
+    name: &str,
+    kind: &str,
+    detail: &str,
+    port: Option<u16>,
+    schedule: Option<String>,
+    status: &str,
+) {
+    let mut state = shared.write().await;
+    let entry = state.entry(name.to_string()).or_insert_with(|| ServiceState {
+        name: name.to_string(),
+        kind: kind.to_string(),
+        detail: detail.to_string(),
+        port,
+        schedule,
+        status: status.to_string(),
+        restarts: 0,
+    });
+    entry.status = status.to_string();
+}
+
 fn collect_proxy_route(
     config: &Config,
     service: &Service,
@@ -254,42 +269,45 @@ fn collect_proxy_route(
     });
 }
 
+const HEALTHY_THRESHOLD: Duration = Duration::from_secs(60);
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
+
 fn spawn_process(
     name: String,
     cmd: String,
     env: HashMap<String, String>,
     mut shutdown_rx: watch::Receiver<bool>,
+    shared_state: SharedState,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut backoff = Duration::from_secs(1);
+        let mut restarts: u32 = 0;
 
         loop {
             if *shutdown_rx.borrow() {
                 break;
             }
 
-            let parts: Vec<&str> = cmd.split_whitespace().collect();
-            let Some((program, args)) = parts.split_first() else {
-                eprintln!("[{name}] empty command");
-                break;
-            };
-
-            let mut child = match Command::new(program)
-                .args(args)
+            let mut child = match Command::new("sh")
+                .arg("-c")
+                .arg(&cmd)
                 .envs(&env)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .kill_on_drop(true)
                 .spawn()
             {
                 Ok(child) => child,
                 Err(e) => {
                     eprintln!("[{name}] failed to start: {e}");
+                    update_status(&shared_state, &name, "crashed", restarts).await;
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(30));
                     continue;
                 }
             };
+
+            update_status(&shared_state, &name, "running", restarts).await;
+            let started = Instant::now();
 
             if let Some(stdout) = child.stdout.take() {
                 let prefix = name.clone();
@@ -316,6 +334,11 @@ fn spawn_process(
                     if *shutdown_rx.borrow() {
                         break;
                     }
+                    restarts += 1;
+                    if started.elapsed() > HEALTHY_THRESHOLD {
+                        backoff = Duration::from_secs(1);
+                    }
+                    update_status(&shared_state, &name, "restarting", restarts).await;
                     match status {
                         Ok(s) => eprintln!("[{name}] exited with {s}, restarting in {backoff:?}"),
                         Err(e) => eprintln!("[{name}] error: {e}, restarting in {backoff:?}"),
@@ -324,12 +347,37 @@ fn spawn_process(
                     backoff = (backoff * 2).min(Duration::from_secs(30));
                 }
                 _ = shutdown_rx.changed() => {
-                    let _ = child.kill().await;
+                    graceful_kill(&mut child, &name).await;
+                    update_status(&shared_state, &name, "stopped", restarts).await;
                     break;
                 }
             }
         }
     })
+}
+
+async fn update_status(shared: &SharedState, name: &str, status: &str, restarts: u32) {
+    let mut state = shared.write().await;
+    if let Some(entry) = state.get_mut(name) {
+        entry.status = status.to_string();
+        entry.restarts = restarts;
+    }
+}
+
+async fn graceful_kill(child: &mut tokio::process::Child, name: &str) {
+    if let Some(pid) = child.id() {
+        unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+        tokio::select! {
+            _ = child.wait() => (),
+            _ = tokio::time::sleep(SHUTDOWN_GRACE) => {
+                eprintln!("[{name}] did not stop within {}s, sending SIGKILL",
+                    SHUTDOWN_GRACE.as_secs());
+                let _ = child.kill().await;
+            }
+        }
+    } else {
+        let _ = child.kill().await;
+    }
 }
 
 async fn start_container(
@@ -339,6 +387,7 @@ async fn start_container(
     service: &Service,
     app_name: &str,
     port: Option<u16>,
+    user_env: &HashMap<String, String>,
 ) -> Result<()> {
     let _ = Command::new(runtime)
         .args(["rm", "-f", name])
@@ -360,7 +409,7 @@ async fn start_container(
             .arg(format!("baton-{name}-{volume}:{mount_path}"));
     }
 
-    for (key, val) in container_env_vars(image, app_name) {
+    for (key, val) in container_env_vars(image, app_name, user_env) {
         cmd.arg("-e").arg(format!("{key}={val}"));
     }
 
@@ -476,16 +525,22 @@ pub fn register_env_vars(
 
     if let Some(image) = &service.image {
         if image.contains("postgres") {
+            let pw = env.get("POSTGRES_PASSWORD")
+                .cloned()
+                .unwrap_or_else(|| generate_password(app_name, "postgres"));
             env.insert(
                 "DATABASE_URL".to_string(),
-                format!("postgres://postgres:baton@localhost:{port}/{app_name}"),
+                format!("postgres://postgres:{pw}@localhost:{port}/{app_name}"),
             );
         } else if image.contains("redis") {
             env.insert("REDIS_URL".to_string(), format!("redis://localhost:{port}"));
         } else if image.contains("mysql") || image.contains("mariadb") {
+            let pw = env.get("MYSQL_ROOT_PASSWORD")
+                .cloned()
+                .unwrap_or_else(|| generate_password(app_name, "mysql"));
             env.insert(
                 "DATABASE_URL".to_string(),
-                format!("mysql://root:baton@localhost:{port}/{app_name}"),
+                format!("mysql://root:{pw}@localhost:{port}/{app_name}"),
             );
         } else if image.contains("mongo") {
             env.insert(
@@ -528,14 +583,30 @@ fn default_volume_path(image: &str) -> &str {
     }
 }
 
-fn container_env_vars(image: &str, app_name: &str) -> Vec<(String, String)> {
+fn container_env_vars(image: &str, app_name: &str, user_env: &HashMap<String, String>) -> Vec<(String, String)> {
     let mut vars = Vec::new();
     if image.contains("postgres") {
-        vars.push(("POSTGRES_PASSWORD".to_string(), "baton".to_string()));
+        let pw = user_env.get("POSTGRES_PASSWORD")
+            .cloned()
+            .unwrap_or_else(|| generate_password(app_name, "postgres"));
+        vars.push(("POSTGRES_PASSWORD".to_string(), pw));
         vars.push(("POSTGRES_DB".to_string(), app_name.to_string()));
     } else if image.contains("mysql") || image.contains("mariadb") {
-        vars.push(("MYSQL_ROOT_PASSWORD".to_string(), "baton".to_string()));
+        let pw = user_env.get("MYSQL_ROOT_PASSWORD")
+            .cloned()
+            .unwrap_or_else(|| generate_password(app_name, "mysql"));
+        vars.push(("MYSQL_ROOT_PASSWORD".to_string(), pw));
         vars.push(("MYSQL_DATABASE".to_string(), app_name.to_string()));
     }
     vars
+}
+
+fn generate_password(app_name: &str, db_type: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    app_name.hash(&mut hasher);
+    db_type.hash(&mut hasher);
+    let hash = hasher.finish();
+    format!("baton_{hash:016x}")
 }

@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::str::FromStr;
+use std::time::Duration;
 
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::config::normalise_cron;
+
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 pub fn spawn_cron_task(
     name: String,
@@ -36,7 +39,7 @@ pub fn spawn_cron_task(
 
             let wait = (next - chrono::Utc::now())
                 .to_std()
-                .unwrap_or(std::time::Duration::from_secs(1));
+                .unwrap_or(Duration::from_secs(1));
 
             println!("[{name}] next run at {next}");
 
@@ -53,39 +56,49 @@ pub fn spawn_cron_task(
 
             println!("[{name}] running...");
 
-            let parts: Vec<&str> = cmd.split_whitespace().collect();
-            let Some((program, args)) = parts.split_first() else {
-                eprintln!("[{name}] empty command");
-                break;
-            };
-
-            let child = Command::new(program)
-                .args(args)
+            let mut child = match Command::new("sh")
+                .arg("-c")
+                .arg(&cmd)
                 .envs(&env)
                 .stdout(Stdio::inherit())
                 .stderr(Stdio::inherit())
-                .kill_on_drop(true)
-                .spawn();
-
-            match child {
-                Ok(mut c) => {
-                    tokio::select! {
-                        status = c.wait() => {
-                            match status {
-                                Ok(s) => println!("[{name}] finished with {s}"),
-                                Err(e) => eprintln!("[{name}] error: {e}"),
-                            }
-                        }
-                        _ = shutdown_rx.changed() => {
-                            let _ = c.kill().await;
-                            break;
-                        }
-                    }
-                }
+                .spawn()
+            {
+                Ok(c) => c,
                 Err(e) => {
                     eprintln!("[{name}] failed to start: {e}");
+                    continue;
+                }
+            };
+
+            tokio::select! {
+                status = child.wait() => {
+                    match status {
+                        Ok(s) => println!("[{name}] finished with {s}"),
+                        Err(e) => eprintln!("[{name}] error: {e}"),
+                    }
+                }
+                _ = shutdown_rx.changed() => {
+                    graceful_kill(&mut child, &name).await;
+                    break;
                 }
             }
         }
     })
+}
+
+async fn graceful_kill(child: &mut tokio::process::Child, name: &str) {
+    if let Some(pid) = child.id() {
+        unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+        tokio::select! {
+            _ = child.wait() => (),
+            _ = tokio::time::sleep(SHUTDOWN_GRACE) => {
+                eprintln!("[{name}] did not stop within {}s, sending SIGKILL",
+                    SHUTDOWN_GRACE.as_secs());
+                let _ = child.kill().await;
+            }
+        }
+    } else {
+        let _ = child.kill().await;
+    }
 }

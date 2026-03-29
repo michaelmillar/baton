@@ -62,6 +62,7 @@ pub async fn run() -> Result<()> {
         app: App {
             name: dir_name.clone(),
             domain: None,
+            proxy_port: None,
         },
         environments: Default::default(),
         services,

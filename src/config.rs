@@ -18,13 +18,13 @@ pub struct Config {
 pub struct App {
     pub name: String,
     pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Environment {
     pub domain: Option<String>,
-    #[serde(default)]
-    pub nodes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -48,16 +48,10 @@ pub struct Service {
     pub expose: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub replicas: Option<Replicas>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cluster: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spa: Option<bool>,
 }
@@ -75,21 +69,11 @@ impl Service {
             volume: None,
             expose: None,
             schedule: None,
-            replicas: None,
             after: vec![],
             runtime: None,
-            cluster: None,
-            team: None,
             spa: None,
         }
     }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum Replicas {
-    Count(u32),
-    PerEnvironment(HashMap<String, u32>),
 }
 
 impl Config {
@@ -103,7 +87,14 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
+        let mut seen = std::collections::HashSet::new();
         for service in &self.services {
+            anyhow::ensure!(
+                seen.insert(&service.name),
+                "duplicate service name '{}'",
+                service.name
+            );
+
             let has_source =
                 service.run.is_some()
                     || service.build.is_some()

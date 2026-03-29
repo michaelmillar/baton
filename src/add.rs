@@ -161,10 +161,10 @@ fn build_template(opts: &AddOptions) -> Result<ServiceTemplate> {
     };
 
     let mut fields = fields;
-    if let Some(p) = opts.port {
-        if !fields.iter().any(|(k, _)| *k == "port") {
-            fields.push(("port", Value::from(p as i64)));
-        }
+    if let Some(p) = opts.port
+        && !fields.iter().any(|(k, _)| *k == "port")
+    {
+        fields.push(("port", Value::from(p as i64)));
     }
 
     Ok(ServiceTemplate { name, fields })

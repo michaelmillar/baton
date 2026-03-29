@@ -182,45 +182,6 @@ fn valid_5_field_cron() {
 }
 
 #[test]
-fn replicas_as_count() {
-    let cfg = load_config(r#"
-        [app]
-        name = "test"
-
-        [[service]]
-        name = "web"
-        run = "./app"
-        replicas = 3
-    "#)
-    .unwrap();
-    match &cfg.services[0].replicas {
-        Some(baton::config::Replicas::Count(n)) => assert_eq!(*n, 3),
-        _ => panic!("expected Count variant"),
-    }
-}
-
-#[test]
-fn replicas_per_environment() {
-    let cfg = load_config(r#"
-        [app]
-        name = "test"
-
-        [[service]]
-        name = "web"
-        run = "./app"
-        replicas = { staging = 1, prod = 3 }
-    "#)
-    .unwrap();
-    match &cfg.services[0].replicas {
-        Some(baton::config::Replicas::PerEnvironment(map)) => {
-            assert_eq!(map["staging"], 1);
-            assert_eq!(map["prod"], 3);
-        }
-        _ => panic!("expected PerEnvironment variant"),
-    }
-}
-
-#[test]
 fn environments_parsed() {
     let cfg = load_config(r#"
         [app]
@@ -228,11 +189,9 @@ fn environments_parsed() {
 
         [environments.staging]
         domain = "staging.test.com"
-        nodes = ["s1", "s2"]
 
         [environments.prod]
         domain = "test.com"
-        nodes = ["p1", "p2", "p3"]
 
         [[service]]
         name = "web"
@@ -240,7 +199,6 @@ fn environments_parsed() {
     "#)
     .unwrap();
     assert_eq!(cfg.environments.len(), 2);
-    assert_eq!(cfg.environments["staging"].nodes.len(), 2);
     assert_eq!(cfg.environments["prod"].domain.as_deref(), Some("test.com"));
 }
 
@@ -266,19 +224,16 @@ fn all_optional_fields() {
         run = "./app serve"
         port = 4000
         health = "/healthz"
-        replicas = 2
-        team = "backend"
         after = []
     "#)
     .unwrap();
     let svc = &cfg.services[0];
     assert_eq!(svc.health.as_deref(), Some("/healthz"));
-    assert_eq!(svc.team.as_deref(), Some("backend"));
 }
 
 #[test]
-fn duplicate_service_names_loads() {
-    let cfg = load_config(r#"
+fn duplicate_service_names_rejected() {
+    let result = load_config(r#"
         [app]
         name = "test"
 
@@ -289,13 +244,14 @@ fn duplicate_service_names_loads() {
         [[service]]
         name = "web"
         run = "./b"
-    "#)
-    .unwrap();
-    assert_eq!(cfg.services.len(), 2);
+    "#);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("duplicate"));
 }
 
 #[test]
-fn runtime_and_cluster_fields() {
+fn runtime_field() {
     let cfg = load_config(r#"
         [app]
         name = "test"
@@ -304,11 +260,9 @@ fn runtime_and_cluster_fields() {
         name = "web"
         build = "."
         runtime = "beam"
-        cluster = true
     "#)
     .unwrap();
     assert_eq!(cfg.services[0].runtime.as_deref(), Some("beam"));
-    assert_eq!(cfg.services[0].cluster, Some(true));
 }
 
 #[test]

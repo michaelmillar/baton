@@ -140,7 +140,19 @@ fn env_var_injection_postgres() {
     register_env_vars(&svc, "myapp", 5432, &mut env);
     assert_eq!(env["DB_HOST"], "localhost");
     assert_eq!(env["DB_PORT"], "5432");
-    assert_eq!(env["DATABASE_URL"], "postgres://postgres:baton@localhost:5432/myapp");
+    let url = &env["DATABASE_URL"];
+    assert!(url.starts_with("postgres://postgres:baton_"));
+    assert!(url.ends_with("@localhost:5432/myapp"));
+}
+
+#[test]
+fn env_var_injection_postgres_custom_password() {
+    let mut svc = svc("db");
+    svc.image = Some("postgres:16".to_string());
+    let mut env = HashMap::new();
+    env.insert("POSTGRES_PASSWORD".to_string(), "secret123".to_string());
+    register_env_vars(&svc, "myapp", 5432, &mut env);
+    assert_eq!(env["DATABASE_URL"], "postgres://postgres:secret123@localhost:5432/myapp");
 }
 
 #[test]
@@ -160,7 +172,9 @@ fn env_var_injection_mysql() {
     svc.image = Some("mysql:8".to_string());
     let mut env = HashMap::new();
     register_env_vars(&svc, "myapp", 3306, &mut env);
-    assert_eq!(env["DATABASE_URL"], "mysql://root:baton@localhost:3306/myapp");
+    let url = &env["DATABASE_URL"];
+    assert!(url.starts_with("mysql://root:baton_"));
+    assert!(url.ends_with("@localhost:3306/myapp"));
 }
 
 #[test]

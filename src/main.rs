@@ -1,7 +1,5 @@
 mod add;
-mod agent;
 mod build;
-mod chaos;
 mod config;
 mod cron;
 mod dashboard;
@@ -10,11 +8,9 @@ mod health;
 mod init;
 mod proxy;
 mod runner;
-mod server;
 mod static_server;
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -38,14 +34,6 @@ enum Command {
         ui: bool,
         #[arg(long, default_value = "9500")]
         ui_port: u16,
-        #[arg(long)]
-        chaos: bool,
-        #[arg(long, default_value = "30")]
-        chaos_interval: u64,
-        #[arg(long, default_value = "0.3")]
-        chaos_probability: f64,
-        #[arg(long)]
-        chaos_target: Option<String>,
     },
     Validate {
         #[arg(long, default_value = "baton.toml")]
@@ -66,29 +54,6 @@ enum Command {
         #[arg(long)]
         schedule: Option<String>,
     },
-    Node {
-        #[command(subcommand)]
-        action: NodeAction,
-    },
-    Server {
-        #[arg(long, default_value = "baton.toml")]
-        config: PathBuf,
-        #[arg(long, default_value = "9090")]
-        port: u16,
-    },
-    Agent {
-        #[arg(long)]
-        server: String,
-        #[arg(long, default_value = "9091")]
-        port: u16,
-    },
-}
-
-#[derive(Subcommand)]
-enum NodeAction {
-    Add { addresses: Vec<String> },
-    List,
-    Remove { address: String },
 }
 
 #[tokio::main]
@@ -99,30 +64,26 @@ async fn main() -> Result<()> {
         Command::Init => init::run().await,
         Command::Up {
             config,
-            env: _env,
+            env,
             ui: enable_ui,
             ui_port,
-            chaos: enable_chaos,
-            chaos_interval,
-            chaos_probability,
-            chaos_target,
         } => {
-            let cfg = config::Config::load(&config)?;
-            let chaos_cfg = if enable_chaos {
-                Some(chaos::ChaosConfig {
-                    kill_interval: Duration::from_secs(chaos_interval),
-                    kill_probability: chaos_probability,
-                    target: chaos_target,
-                })
-            } else {
-                None
-            };
+            let mut cfg = config::Config::load(&config)?;
+            if let Some(ref env_name) = env {
+                let environment = cfg.environments.get(env_name)
+                    .ok_or_else(|| anyhow::anyhow!("environment '{}' not found in config", env_name))?
+                    .clone();
+                if let Some(domain) = environment.domain {
+                    cfg.app.domain = Some(domain);
+                }
+                println!("using environment: {env_name}");
+            }
             let ui_cfg = if enable_ui {
                 Some(ui_port)
             } else {
                 None
             };
-            runner::run(cfg, chaos_cfg, ui_cfg).await
+            runner::run(cfg, ui_cfg).await
         }
         Command::Validate { config } => {
             let cfg = config::Config::load(&config)?;
@@ -153,9 +114,10 @@ async fn main() -> Result<()> {
         }
         Command::Status { config } => {
             let cfg = config::Config::load(&config)?;
-            println!("{} status", cfg.app.name);
+            println!("{} status\n", cfg.app.name);
             for service in &cfg.services {
-                println!("  {}  not running", service.name);
+                let status = check_service_status(service, &cfg.app.name).await;
+                println!("  {}  {}", service.name, status);
             }
             Ok(())
         }
@@ -172,24 +134,57 @@ async fn main() -> Result<()> {
             run,
             schedule,
         }),
-        Command::Node { action } => {
-            match action {
-                NodeAction::Add { addresses } => {
-                    for addr in &addresses {
-                        println!("would install agent on {addr}");
-                    }
+    }
+}
+
+async fn check_service_status(service: &config::Service, app_name: &str) -> String {
+    if service.image.is_some() || service.build.is_some() {
+        let container_name = format!("baton-{}-{}", app_name, service.name);
+        if is_container_running(&container_name).await {
+            return "running (container)".to_string();
+        }
+        return "stopped".to_string();
+    }
+
+    if service.schedule.is_some() {
+        return "scheduled".to_string();
+    }
+
+    if let Some(port) = service.port {
+        if tokio::net::TcpStream::connect(format!("127.0.0.1:{port}")).await.is_ok() {
+            return format!("running (:{port})");
+        }
+        return "stopped".to_string();
+    }
+
+    "unknown".to_string()
+}
+
+async fn is_container_running(name: &str) -> bool {
+    let output = tokio::process::Command::new("docker")
+        .args(["inspect", "-f", "{{.State.Running}}", name])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await;
+
+    match output {
+        Ok(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).trim() == "true"
+        }
+        _ => {
+            let output = tokio::process::Command::new("podman")
+                .args(["inspect", "-f", "{{.State.Running}}", name])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .await;
+            match output {
+                Ok(o) if o.status.success() => {
+                    String::from_utf8_lossy(&o.stdout).trim() == "true"
                 }
-                NodeAction::List => println!("no nodes configured"),
-                NodeAction::Remove { address } => println!("would remove {address}"),
+                _ => false,
             }
-            Ok(())
-        }
-        Command::Server { config, port } => {
-            let cfg = config::Config::load(&config)?;
-            server::run(cfg, port).await
-        }
-        Command::Agent { server: server_addr, port } => {
-            agent::run(server_addr, port).await
         }
     }
 }
