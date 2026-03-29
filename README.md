@@ -2,22 +2,24 @@
   <img src="assets/logo.svg" width="200" alt="Baton">
 </p>
 
-<h3 align="center">A single-binary orchestrator for teams that left Kubernetes on purpose</h3>
+<h3 align="center">A single-binary deploy engine for single-node production systems</h3>
 
 <p align="center">
-  One TOML file. Processes, containers, databases, workers, cron jobs.<br>
-  Dependency-ordered startup, health checks, graceful shutdown, and a live dashboard.
+  Snapshot your database before every deploy. Gate on migration success.<br>
+  Roll back automatically if health checks fail. One TOML file, one binary, no cluster required.
 </p>
 
 ---
 
-https://github.com/user-attachments/assets/be3fb534-0b78-46f9-a5b1-d88b0e167189
+https://github.com/user-attachments/assets/86e9be51-e6ef-409e-a047-418642a6d98f
 
 ---
 
 ## What it does
 
-Baton reads a single `baton.toml` and runs your entire stack on one machine. It handles dependency ordering, health checks, crash recovery with backoff, service discovery via environment variables, and graceful shutdown (SIGTERM, wait, SIGKILL).
+Baton manages your entire stack on one machine: containers, native processes, workers, cron jobs. It handles dependency ordering, health checks, crash recovery with backoff, service discovery via environment variables, and graceful shutdown.
+
+What makes it different: `baton deploy` snapshots your stateful services before every deploy, runs migrations in dependency order, gates on health checks, and rolls back automatically if anything fails. No other single-node tool does this.
 
 ```toml
 [app]
@@ -28,6 +30,7 @@ domain = "myapp.com"
 name = "db"
 image = "postgres:16"
 volume = "pg_data"
+backup = "pg_dump"
 
 [[service]]
 name = "redis"
@@ -39,6 +42,7 @@ run = "./api serve"
 port = 4000
 health = "/health"
 after = ["db", "redis"]
+migrate = "./api migrate"
 
 [[service]]
 name = "worker"
@@ -51,6 +55,8 @@ run = "./api generate-reports"
 schedule = "0 2 * * *"
 after = ["db"]
 ```
+
+### Development
 
 ```
 $ baton up --ui
@@ -66,6 +72,32 @@ starting myapp...
 
 all services running. ctrl+c to stop.
 ```
+
+### Production deploy
+
+```
+$ baton deploy
+loaded 3 vars from .env
+deploying myapp...
+
+  snapshotting stateful services...
+    [ok] db (pg_dump)
+    [ok] redis (redis)
+
+  running migrations...
+    api ... ok
+
+  restarting services...
+    [ok] api (container)
+    [ok] worker (signalled)
+
+  checking health...
+    api :4000/health ... ok
+
+deploy complete.
+```
+
+If the health check had failed, baton would have restored the database snapshot and reported the rollback. No manual intervention required.
 
 ## Install
 
@@ -86,11 +118,57 @@ cargo build --release
 ```
 cd your-project
 baton init        # detects your stack, generates baton.toml
-baton up          # starts everything
+baton up          # starts everything (development)
 baton up --ui     # starts everything + web dashboard on :9500
+baton deploy      # safe production deploy with snapshots + rollback
 ```
 
 `baton init` detects Rust, Go, Node.js, Elixir, and Dockerfile projects automatically.
+
+## Deploy lifecycle
+
+`baton deploy` runs the following steps in order:
+
+1. **Validate** config and check all services are reachable
+2. **Snapshot** stateful services (Postgres via pg_dump, Redis via BGSAVE, or custom command)
+3. **Migrate** in dependency order (each service's `migrate` command, if set)
+4. **Restart** application services
+5. **Health gate** (wait for each service's `/health` endpoint to pass)
+6. **Roll back** if health fails (restore snapshot, report failure)
+7. **Record** the full event timeline to `.baton/history.json`
+
+If any step fails, everything after it is skipped and the appropriate rollback runs.
+
+## Deploy commands
+
+```
+baton deploy                # safe deploy: snapshot, migrate, restart, health gate
+baton rollback              # restore the latest snapshot
+baton rollback <id>         # restore a specific snapshot
+baton history               # show deploy timeline
+baton snapshot              # take a manual snapshot without deploying
+baton restore <id>          # restore a specific snapshot manually
+```
+
+## Backup configuration
+
+For known database images, baton snapshots automatically:
+
+| Image | Method | Automatic |
+|-------|--------|-----------|
+| `postgres:*` | pg_dump | Yes |
+| `redis:*` | BGSAVE + copy | Yes |
+
+For anything else, set the `backup` field to a shell command. Baton sets `BATON_SNAPSHOT_PATH` and `BATON_SERVICE_NAME` in the environment. Your command must write to `$BATON_SNAPSHOT_PATH`.
+
+```toml
+[[service]]
+name = "search"
+image = "elasticsearch:8"
+backup = "./scripts/backup-elastic.sh"
+```
+
+Snapshots are stored locally in `.baton/snapshots/` with a `meta.json` manifest.
 
 ## Adding services
 
@@ -133,6 +211,8 @@ Each `[[service]]` must have one of `run`, `build`, `image`, or `static`.
 | `after` | list | Services that must start first |
 | `volume` | string | Named volume for persistent data |
 | `schedule` | string | Cron expression for scheduled tasks |
+| `backup` | string | Backup method or command (auto-detected for postgres/redis) |
+| `migrate` | string | Migration command to run during deploys |
 | `runtime` | string | Runtime hint (e.g. "beam" for Elixir) |
 | `spa` | bool | Enable SPA routing for static sites |
 
@@ -199,37 +279,37 @@ See the [examples](examples/) directory:
 
 ## How it compares
 
-Every existing tool either requires Docker and cannot manage native processes, or manages native processes and cannot manage containers. Nothing does both from a single config, as a single binary, with no daemon dependency.
+Every existing tool either requires Docker and cannot manage native processes, or manages native processes and cannot manage containers. Nothing does both from a single config, as a single binary, with deploy-aware state management.
 
-| Tool | Native processes | Containers | Cron | Service discovery | Single binary | Dashboard |
-|------|-----------------|------------|------|-------------------|---------------|-----------|
-| Docker Compose | No | Yes | No | Docker DNS | No (needs Docker) | No |
-| Dokku | No | Yes | Plugin | Docker DNS | No (shell scripts) | No |
-| Coolify | No | Yes | Partial | Traefik | No (Laravel in Docker) | Yes |
-| CapRover | No | Yes (Swarm) | No | Swarm DNS | No (Node.js in Docker) | Yes |
-| Kamal | No | Yes | No | No | No (Ruby gem) | No |
-| Foreman/Overmind | Yes | No | No | No | Overmind only | No |
-| systemd | Yes | Yes (Podman) | Yes (timers) | No | Built-in | No |
-| PM2 | Yes | No | Partial | No | No (needs Node.js) | Paid cloud |
-| **Baton** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| Tool | Native processes | Containers | Cron | Deploy snapshots | Migration gates | Auto rollback | Single binary |
+|------|-----------------|------------|------|-----------------|----------------|---------------|---------------|
+| Docker Compose | No | Yes | No | No | No | No | No (needs Docker) |
+| Nomad | Yes | Yes | Yes | No | No | No | Yes |
+| Dokku | No | Yes | Plugin | No | No | No | No (shell scripts) |
+| Coolify | No | Yes | Partial | No | No | No | No (Laravel) |
+| Kamal | No | Yes | No | No | No | Yes (deploys) | No (Ruby gem) |
+| systemd | Yes | Yes (Podman) | Yes (timers) | No | No | No | Built-in |
+| PM2 | Yes | No | Partial | No | No | No | No (Node.js) |
+| **Baton** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 
-**Where baton is stronger.** Mixed runtime (a Go binary, a Postgres container, and a Python cron job in the same TOML). Single binary with zero runtime dependencies. Dependency-ordered startup with health-check gates. Automatic service discovery via env vars. Live dashboard that reflects real process state. Graceful SIGTERM/SIGKILL shutdown. All of this without Docker for process-only stacks.
+**Where baton is stronger.** Mixed runtime (a Go binary, a Postgres container, and a Python cron job in the same TOML). Pre-deploy database snapshots with automatic rollback on health failure. Migration orchestration in dependency order. Single binary with zero runtime dependencies.
 
-**Where baton is weaker.** Compose has a much larger ecosystem and community. Dokku and Coolify handle TLS and git-push workflows. Kamal has zero-downtime rolling deploys. systemd has decades of battle-testing and cgroup resource limits. Baton has none of these yet.
+**Where baton is weaker.** Compose has a much larger ecosystem and community. Dokku and Coolify handle TLS and git-push workflows. Kamal has zero-downtime rolling deploys across multiple hosts. Nomad scales to clusters. systemd has decades of battle-testing and cgroup resource limits. Baton has none of these yet.
 
-**The closest alternative is systemd + Podman/Quadlet.** This combination can manage native processes, containers, and cron (via timers). But it has no deployment UX, no config-driven service discovery, no dashboard, and no unified config format. Each service is a separate unit file. Baton is what you'd build if you wanted systemd's capability model with a deployment tool's UX.
+**The closest alternative is Nomad.** Nomad already covers mixed workloads, periodic jobs, and has a web UI. But Nomad was designed for clusters, carries that weight in configuration complexity, and has no concept of pre-deploy snapshots, migration gates, or automatic data rollback. Baton is what you would build if you wanted Nomad's capability model scoped to a single node with deploy safety built in.
 
 ## Status
 
-68 tests. Single binary. Zero external dependencies at runtime.
+82 tests. Single binary. Zero external dependencies at runtime.
 
 Not yet implemented:
 
 - TLS via Let's Encrypt
 - Rolling deploys / zero-downtime updates
-- Database backup and restore
 - Log aggregation
 - Resource limits (CPU/memory)
+- MySQL/MariaDB snapshot support (Postgres and Redis are supported)
+- Remote snapshot storage
 
 ## Licence
 

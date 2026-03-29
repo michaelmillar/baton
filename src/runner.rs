@@ -68,7 +68,7 @@ pub async fn run(config: Config, ui_port: Option<u16>) -> Result<()> {
 
             let build_svc = Service {
                 image: Some(image_tag.clone()),
-                ..Service::new(&service.name)
+                ..service.clone()
             };
 
             start_container(rt, &container_name, &image_tag, &build_svc, &config.app.name, port, &env_vars).await?;

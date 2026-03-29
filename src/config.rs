@@ -54,6 +54,10 @@ pub struct Service {
     pub runtime: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spa: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub migrate: Option<String>,
 }
 
 impl Service {
@@ -72,6 +76,8 @@ impl Service {
             after: vec![],
             runtime: None,
             spa: None,
+            backup: None,
+            migrate: None,
         }
     }
 }

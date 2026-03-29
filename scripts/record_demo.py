@@ -71,8 +71,8 @@ SCENES = [
     {
         "title": "Baton",
         "subtitle": (
-            "A single-binary orchestrator for teams\n"
-            "that left Kubernetes on purpose"
+            "A single-binary deploy engine\n"
+            "for single-node production systems"
         ),
         "is_title_card": True,
         "duration": 6,
@@ -80,7 +80,7 @@ SCENES = [
     {
         "annotation": (
             "One TOML file defines your entire stack.\n"
-            "Processes, containers, databases, workers, cron jobs."
+            "backup and migrate fields enable safe deploys."
         ),
         "is_terminal": True,
         "terminal_lines": [
@@ -94,6 +94,7 @@ SCENES = [
             ('name = "db"', (220, 220, 220)),
             ('image = "postgres:16"', (220, 220, 220)),
             ('volume = "pg_data"', (220, 220, 220)),
+            ('backup = "pg_dump"', (74, 222, 128)),
             ("", None),
             ("[[service]]", (150, 200, 255)),
             ('name = "redis"', (220, 220, 220)),
@@ -105,17 +106,12 @@ SCENES = [
             ("port = 4000", (220, 220, 220)),
             ('health = "/health"', (220, 220, 220)),
             ('after = ["db", "redis"]', (220, 220, 220)),
+            ('migrate = "./api migrate"', (74, 222, 128)),
             ("", None),
             ("[[service]]", (150, 200, 255)),
             ('name = "worker"', (220, 220, 220)),
             ('run = "./api process-jobs"', (220, 220, 220)),
             ('after = ["db", "redis"]', (220, 220, 220)),
-            ("", None),
-            ("[[service]]", (150, 200, 255)),
-            ('name = "reports"', (220, 220, 220)),
-            ('run = "./api generate-reports"', (220, 220, 220)),
-            ('schedule = "0 2 * * *"', (220, 220, 220)),
-            ('after = ["db"]', (220, 220, 220)),
         ],
         "duration": 10,
     },
@@ -140,6 +136,94 @@ SCENES = [
             ("", None),
             ("all services running. ctrl+c to stop.", (220, 220, 220)),
         ],
+        "duration": 8,
+    },
+    {
+        "annotation": (
+            "baton deploy snapshots your database before every deploy.\n"
+            "Migrations run in dependency order. Health checks gate the rollout."
+        ),
+        "is_terminal": True,
+        "terminal_lines": [
+            ("$ baton deploy", (150, 200, 255)),
+            ("loaded 3 vars from .env", (180, 180, 180)),
+            ("deploying myapp...", (220, 220, 220)),
+            ("", None),
+            ("  snapshotting stateful services...", (220, 220, 220)),
+            ("    [ok] db (pg_dump)", (74, 222, 128)),
+            ("    [ok] redis (redis)", (74, 222, 128)),
+            ("", None),
+            ("  running migrations...", (220, 220, 220)),
+            ("    api ... ok", (74, 222, 128)),
+            ("", None),
+            ("  restarting services...", (220, 220, 220)),
+            ("    [ok] api (container)", (74, 222, 128)),
+            ("    [ok] worker (signalled)", (74, 222, 128)),
+            ("", None),
+            ("  checking health...", (220, 220, 220)),
+            ("    api :4000/health ... ok", (74, 222, 128)),
+            ("", None),
+            ("deploy complete.", (74, 222, 128)),
+        ],
+        "duration": 12,
+    },
+    {
+        "annotation": (
+            "When a deploy fails, baton rolls back automatically.\n"
+            "Database restored from snapshot. No manual intervention."
+        ),
+        "is_terminal": True,
+        "terminal_lines": [
+            ("$ baton deploy", (150, 200, 255)),
+            ("loaded 3 vars from .env", (180, 180, 180)),
+            ("deploying myapp...", (220, 220, 220)),
+            ("", None),
+            ("  snapshotting stateful services...", (220, 220, 220)),
+            ("    [ok] db (pg_dump)", (74, 222, 128)),
+            ("", None),
+            ("  running migrations...", (220, 220, 220)),
+            ("    api ... ok", (74, 222, 128)),
+            ("", None),
+            ("  restarting services...", (220, 220, 220)),
+            ("    [ok] api (container)", (74, 222, 128)),
+            ("", None),
+            ("  checking health...", (220, 220, 220)),
+            ("    api :4000/health ... FAILED", (255, 100, 100)),
+            ("", None),
+            ("  health check failed, restoring snapshot 20260329-143000...", (255, 200, 100)),
+            ("    [ok] db restored (pg_dump)", (255, 200, 100)),
+            ("", None),
+            ("Error: health check failed for api, rolled back to snapshot 20260329-143000", (255, 100, 100)),
+        ],
+        "duration": 12,
+    },
+    {
+        "annotation": (
+            "baton history shows the full deploy timeline.\n"
+            "Every snapshot, migration, health check, and rollback recorded."
+        ),
+        "is_terminal": True,
+        "terminal_lines": [
+            ("$ baton history", (150, 200, 255)),
+            ("deploy history", (220, 220, 220)),
+            ("", None),
+            ("  20260329-140000 [ok] 2026-03-29T14:00:00Z", (74, 222, 128)),
+            ("    deploy start deploy started", (180, 180, 180)),
+            ("    snapshot snapshot 20260329-140000", (180, 180, 180)),
+            ("    migrate api migration succeeded", (180, 180, 180)),
+            ("    restart api restarted", (180, 180, 180)),
+            ("    health pass api healthy", (180, 180, 180)),
+            ("    deploy complete Success", (74, 222, 128)),
+            ("", None),
+            ("  20260329-143000 [ROLLED BACK] 2026-03-29T14:30:00Z", (255, 200, 100)),
+            ("    deploy start deploy started", (180, 180, 180)),
+            ("    snapshot snapshot 20260329-143000", (180, 180, 180)),
+            ("    migrate api migration succeeded", (180, 180, 180)),
+            ("    restart api restarted", (180, 180, 180)),
+            ("    health failed api connection refused", (255, 100, 100)),
+            ("    rollback restored snapshot 20260329-143000", (255, 200, 100)),
+            ("    deploy complete RolledBack", (255, 200, 100)),
+        ],
         "duration": 10,
     },
     {
@@ -148,7 +232,7 @@ SCENES = [
             "Status updates on crash, restart, recovery."
         ),
         "action": "dashboard_healthy",
-        "duration": 8,
+        "duration": 6,
     },
     {
         "annotation": (
@@ -156,55 +240,38 @@ SCENES = [
             "Restart count and current status are always accurate."
         ),
         "action": "dashboard_crash",
-        "duration": 8,
+        "duration": 6,
     },
     {
         "annotation": (
-            "Graceful shutdown sends SIGTERM, waits 10 seconds, then SIGKILL.\n"
-            "Services stop in reverse dependency order."
+            "Manual snapshot and rollback available any time.\n"
+            "No deploy required."
         ),
         "is_terminal": True,
         "terminal_lines": [
-            ("^C", (255, 200, 100)),
+            ("$ baton snapshot", (150, 200, 255)),
+            ("taking snapshot...", (220, 220, 220)),
             ("", None),
-            ("shutting down...", (220, 220, 220)),
-            ("  stopped reports", (180, 180, 180)),
-            ("  stopped worker", (180, 180, 180)),
-            ("  stopped api", (180, 180, 180)),
-            ("  stopped redis", (180, 180, 180)),
-            ("  stopped db", (180, 180, 180)),
-            ("done.", (74, 222, 128)),
+            ("  [ok] db (pg_dump)", (74, 222, 128)),
+            ("  [ok] redis (redis)", (74, 222, 128)),
+            ("", None),
+            ("snapshot 20260329-150000 saved.", (74, 222, 128)),
+            ("", None),
+            ("", None),
+            ("$ baton rollback", (150, 200, 255)),
+            ("restoring snapshot 20260329-150000...", (220, 220, 220)),
+            ("", None),
+            ("  [ok] db restored (pg_dump)", (74, 222, 128)),
+            ("  [ok] redis restored (redis)", (74, 222, 128)),
+            ("", None),
+            ("rollback complete.", (74, 222, 128)),
         ],
         "duration": 8,
     },
     {
         "annotation": (
-            "baton add scaffolds common services in one command.\n"
-            "Postgres, Redis, MySQL, Mongo, RabbitMQ, NATS, workers, cron, static, SPA."
-        ),
-        "is_terminal": True,
-        "terminal_lines": [
-            ("$ baton add postgres", (150, 200, 255)),
-            ("added 'postgres' to baton.toml", (74, 222, 128)),
-            ("", None),
-            ("$ baton add redis", (150, 200, 255)),
-            ("added 'redis' to baton.toml", (74, 222, 128)),
-            ("", None),
-            ("$ baton add worker --run './app process-jobs'", (150, 200, 255)),
-            ("added 'worker' to baton.toml", (74, 222, 128)),
-            ("", None),
-            ("$ baton add cron --name nightly --run './app cleanup' --schedule '0 3 * * *'", (150, 200, 255)),
-            ("added 'nightly' to baton.toml", (74, 222, 128)),
-            ("", None),
-            ("$ baton add spa --name frontend", (150, 200, 255)),
-            ("added 'frontend' to baton.toml", (74, 222, 128)),
-        ],
-        "duration": 10,
-    },
-    {
-        "annotation": (
-            "68 tests validate config parsing, dependency ordering,\n"
-            "service discovery, and env var injection."
+            "82 tests validate config, dependency ordering,\n"
+            "snapshots, migrations, deploy lifecycle, and rollback."
         ),
         "is_terminal": True,
         "terminal_lines": [
@@ -213,38 +280,36 @@ SCENES = [
             ("running 8 tests (lib)", (180, 180, 180)),
             ("test env_file::tests::simple_vars ... ok", (74, 222, 128)),
             ("test env_file::tests::quoted_values ... ok", (74, 222, 128)),
-            ("test env_file::tests::comments_and_blanks ... ok", (74, 222, 128)),
             ("test health::tests::port_not_listening_fails ... ok", (74, 222, 128)),
             ("", None),
             ("running 20 tests (add_tests)", (180, 180, 180)),
             ("test add_postgres ... ok", (74, 222, 128)),
             ("test add_redis ... ok", (74, 222, 128)),
-            ("test add_worker_with_custom_command ... ok", (74, 222, 128)),
             ("test add_cron_with_schedule ... ok", (74, 222, 128)),
-            ("test add_duplicate_fails ... ok", (74, 222, 128)),
             ("", None),
             ("running 18 tests (config_tests)", (180, 180, 180)),
-            ("test duplicate_service_names_rejected ... ok", (74, 222, 128)),
             ("test valid_dependency_chain ... ok", (74, 222, 128)),
             ("test deep_dependency_chain ... ok", (74, 222, 128)),
-            ("test many_services_stress ... ok", (74, 222, 128)),
+            ("", None),
+            ("running 14 tests (deploy_tests)", (180, 180, 180)),
+            ("test postgres_has_implicit_backup ... ok", (74, 222, 128)),
+            ("test deploy_recorder_tracks_events ... ok", (74, 222, 128)),
+            ("test migrations_run_in_topo_order ... ok", (74, 222, 128)),
+            ("test full_deploy_config_parses ... ok", (74, 222, 128)),
             ("", None),
             ("running 17 tests (runner_tests)", (180, 180, 180)),
             ("test toposort_complex_graph ... ok", (74, 222, 128)),
             ("test env_var_injection_postgres ... ok", (74, 222, 128)),
-            ("test env_var_injection_postgres_custom_password ... ok", (74, 222, 128)),
-            ("test default_ports_known_images ... ok", (74, 222, 128)),
             ("", None),
-            ("test result: ok. 68 passed; 0 failed", (74, 222, 128)),
+            ("test result: ok. 82 passed; 0 failed", (74, 222, 128)),
         ],
-        "duration": 10,
+        "duration": 8,
     },
     {
         "title": "Baton",
         "subtitle": (
-            "Single binary. One TOML file.\n"
-            "Processes + containers + cron in one place.\n"
-            "SIGTERM graceful shutdown. Live dashboard.\n"
+            "Snapshot. Migrate. Health gate. Auto-rollback.\n"
+            "One binary. One TOML file. No cluster required.\n"
             "github.com/michaelmillar/baton"
         ),
         "is_title_card": True,
