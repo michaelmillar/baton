@@ -197,11 +197,9 @@ See the [examples](examples/) directory:
 - [static-site](examples/static-site/) ... SPA with static file serving
 - [multi-service](examples/multi-service/) ... Multiple services with environment overrides
 
-## Why baton
+## How it compares
 
-There are many tools in this space. Here is an honest look at where baton sits.
-
-**The gap.** Every existing tool either requires Docker and cannot manage native processes, or manages native processes and cannot manage containers. There is nothing that does both from a single config, as a single binary, with no daemon dependency.
+Every existing tool either requires Docker and cannot manage native processes, or manages native processes and cannot manage containers. Nothing does both from a single config, as a single binary, with no daemon dependency.
 
 | Tool | Native processes | Containers | Cron | Service discovery | Single binary | Dashboard |
 |------|-----------------|------------|------|-------------------|---------------|-----------|
@@ -215,11 +213,9 @@ There are many tools in this space. Here is an honest look at where baton sits.
 | PM2 | Yes | No | Partial | No | No (needs Node.js) | Paid cloud |
 | **Baton** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 
-**What baton is not.** It is not a PaaS (no git-push deploys, no buildpacks). It is not a cluster scheduler. It does not manage TLS certificates. It is not for teams deploying for the first time. It is for people who know what good deployment looks like and decided one machine is enough.
+**Where baton is stronger.** Mixed runtime (a Go binary, a Postgres container, and a Python cron job in the same TOML). Single binary with zero runtime dependencies. Dependency-ordered startup with health-check gates. Automatic service discovery via env vars. Live dashboard that reflects real process state. Graceful SIGTERM/SIGKILL shutdown. All of this without Docker for process-only stacks.
 
 **Where baton is weaker.** Compose has a much larger ecosystem and community. Dokku and Coolify handle TLS and git-push workflows. Kamal has zero-downtime rolling deploys. systemd has decades of battle-testing and cgroup resource limits. Baton has none of these yet.
-
-**Where baton is stronger.** Mixed runtime (a Go binary, a Postgres container, and a Python cron job in the same TOML). Single binary with zero runtime dependencies. Dependency-ordered startup with health-check gates. Automatic service discovery via env vars. Live dashboard that reflects real process state. Graceful SIGTERM/SIGKILL shutdown. All of this without Docker for process-only stacks.
 
 **The closest alternative is systemd + Podman/Quadlet.** This combination can manage native processes, containers, and cron (via timers). But it has no deployment UX, no config-driven service discovery, no dashboard, and no unified config format. Each service is a separate unit file. Baton is what you'd build if you wanted systemd's capability model with a deployment tool's UX.
 
