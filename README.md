@@ -207,6 +207,7 @@ Each `[[service]]` must have one of `run`, `build`, `image`, or `static`.
 | `build` | string | Path to build context (Dockerfile) |
 | `static` | string | Path to static files to serve |
 | `port` | int | Port the service listens on |
+| `expose` | int | Externally-published port if different from `port` |
 | `health` | string | HTTP health check path |
 | `after` | list | Services that must start first |
 | `volume` | string | Named volume for persistent data |
@@ -300,7 +301,7 @@ Every existing tool either requires Docker and cannot manage native processes, o
 
 ## Status
 
-82 tests. Single binary. Zero external dependencies at runtime.
+90 tests. Single binary. Zero external dependencies at runtime.
 
 Not yet implemented:
 
